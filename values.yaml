@@ -1,0 +1,691 @@
+global:
+  # -- Codefresh platform and account-related settings
+  codefresh:
+    # -- URL of Codefresh platform.
+    url: "https://g.codefresh.io"
+    # -- Events API endpoint URL suffix.
+    apiEventsPath: "/2.0/api/events"
+    # -- Codefresh Account ID.
+    accountId: "67b67abfa8342f30a57b087a"
+    # -- User token. Used for runtime registration against the patform. One of token (for plain text value) or secretKeyRef must be provided.
+    userToken: 
+      # -- User token in plain text. The chart creates and manages the secret for this token.
+      token: "67d08f80d458d847fa6b4ba3.a8d94192d39b281d627fca6b9f21e82f"
+      # -- User token that references an existing secret containing the token.
+      secretKeyRef: {}
+
+    tls:
+      # --  Custom CA certificates bundle for platform access with ssl
+      caCerts:
+        # -- Reference to existing secret
+        secretKeyRef: {}
+        # -- Chart managed secret for custom platform CA certificates
+        secret:
+          # -- Whether to create the secret.
+          create: false
+          # -- The secret key that holds the ca bundle
+          key: 'ca-bundle.crt'
+          # Annotations
+          annotations: {}
+          # Certificate content
+          content: ""
+          # -----BEGIN CERTIFICATE-----
+          # ... encoded certificate data here ...
+          # -----END CERTIFICATE-----
+
+      # -- Certificates to be used in argo workflows pipelines created in Codefresh UI.
+      # -- Those will be merged with the certificats defined in argo-cd.configs.tls.certificates - so if the certificates are already provided for ArgoCD, there is no need to provide them again.
+      workflowPipelinesGitWebhooks:
+        # Annotations on the secret resource
+        annotatins: {}
+        certificates: {}
+          # server.example.com: |
+          #   -----BEGIN CERTIFICATE-----
+          #   ...
+          #   -----END CERTIFICATE-----
+
+  # -- Runtime level settings
+  runtime:
+    # -- Runtime name. Must be unique per platform account.
+    name: codefresh
+    # -- Runtime cluster. Should not be changed.
+    cluster: https://kubernetes.default.svc
+    # -- Defines whether this is a Codefresh hosted runtime. Should not be changed.
+    codefreshHosted: false
+    # -- Ingress settings
+    ingress:
+      # -- if set to true, the pre-install hook will validate the existance of appropriate values, but *will not* attempt to make a web request to the ingress host
+      skipValidation: false
+      # -- The protocol that Codefresh platform will use to access the runtime ingress. Can be http or https.
+      protocol: https
+      # -- Defines if ingress-based access mode is enabled for runtime. To use tunnel-based (ingressless) access mode, set to false.
+      enabled: false
+      className: nginx
+      tls: []
+      annotations: {}
+      # -- Hosts for runtime ingress. Note that Codefresh platform will always use the first host in the list to access the runtime.
+      hosts: []
+    # -- Explicit url for runtime ingress. Provide this value only if you don't want the chart to create and ingress (global.runtime.ingress.enabled=false) and tunnel-client is not used (tunnel-client.enabled=false)
+    ingressUrl: ""
+    # -- is the runtime set as a "configuration runtime".
+    isConfigurationRuntime: false
+    # -- Git credentials runtime. Runtime is not fully functional without those credentials.
+    # If not provided through the installation, they must be provided through the Codefresh UI.
+    gitCredentials:
+      # -- Username. Optional when using token in password.
+      username: "username"
+      # -- Password. If using GitHub token, please provide it here.
+      password:
+        # -- Plain text password
+        value:
+        # -- secretKeyReference for Git credentials password. Provide name and key fields.
+        secretKeyRef: {}
+
+   # -- Runtime eventbus
+    eventBus:
+       # -- Eventbus name
+      name: 'codefresh-eventbus'
+      # -- Annotations on EventBus resource
+      annotations: {}
+      # -- Pod disruption budget for the eventbus
+      pdb:
+        enabled: true
+        # -- Minimum number of available eventbus pods. For eventbus to stay functional the majority of its replicas should always be available.
+        minAvailable: 2
+      nats:
+        native:
+          replicas: 3
+          auth: token
+          maxPayload: "4MB"
+          containerTemplate:
+            resources:
+              limits:
+                cpu: 500m
+                memory: 4Gi
+                ephemeral-storage: 2Gi
+              requests:
+                cpu: 200m
+                memory: 1Gi
+                ephemeral-storage: 2Gi
+
+# -------------------------------------------------------------------------------------------------------------------------
+# Installer
+# -------------------------------------------------------------------------------------------------------------------------
+# -- Runtime installer used for running hooks and checks on the release
+installer:
+  # -- if set to true, pre-install hook will *not* run
+  skipValidation: false
+  image:
+    repository: quay.io/codefresh/gitops-runtime-installer
+    tag: ""
+    pullPolicy: IfNotPresent
+
+# -----------------------------------------------------------------------------------------------------------------------
+# Sealed secrets
+# -----------------------------------------------------------------------------------------------------------------------
+sealed-secrets:
+  fullnameOverride: sealed-secrets-controller
+  keyrenewperiod: "720h"
+  image:
+    registry: 'quay.io'
+    repository: 'codefresh/sealed-secrets-controller'
+    tag: '0.28.0'
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+
+#-----------------------------------------------------------------------------------------------------------------------
+# ArgoCD
+#-----------------------------------------------------------------------------------------------------------------------
+argo-cd:
+  fullnameOverride: argo-cd
+  crds:
+    install: true
+
+  configs:
+    cm:
+      timeout.reconciliation: 20s
+      accounts.admin: apiKey,login
+      application.resourceTrackingMethod: annotation+label
+    params:
+      server.insecure: true
+      application.namespaces: 'cf-*'
+
+  eventReporter:
+    # -- Installs new event reporter component to cluster
+    enabled: true
+    # -- Amount of shards to handle applications events
+    replicas: 3
+    # -- Switches between old and new reporter version.
+    # Possible values: v1, v2.
+    # For v2 `argo-cd.eventReporter.enabled=true` is required
+    version: v2
+
+  applicationVersioning:
+    # -- Enable application versioning
+    enabled: true
+    # -- Extract application version based on ApplicationConfiguration CRD
+    useApplicationConfiguration: true
+
+#-----------------------------------------------------------------------------------------------------------------------
+# Argo Events
+#-----------------------------------------------------------------------------------------------------------------------
+argo-events:
+  fullnameOverride: argo-events
+  crds:
+    install: false
+  configs:
+    nats:
+      versions:
+        - version: 0.22.1
+          natsStreamingImage: nats-streaming:0.25.6
+          metricsExporterImage: natsio/prometheus-nats-exporter:0.15.0
+    jetstream:
+      versions:
+        - version: latest
+          natsImage: nats:2.10.21
+          metricsExporterImage: natsio/prometheus-nats-exporter:0.15.0
+          configReloaderImage: natsio/nats-server-config-reloader:0.16.0
+          startCommand: /nats-server
+
+#-----------------------------------------------------------------------------------------------------------------------
+# Argo Workflows
+#-----------------------------------------------------------------------------------------------------------------------
+argo-workflows:
+  fullnameOverride: argo
+  enabled: true
+  server:
+    # -- auth-mode needs to be set to client to be able to see workflow logs from Codefresh UI
+    authModes:
+    - client
+    # -- Do not change. Workflows UI is only accessed through internal router, changing this values will break routing to workflows native UI from Codefresh.
+    baseHref: /workflows/
+  crds:
+    # -- Install and upgrade CRDs
+    install: true
+  # executor controls how the init and wait container should be customized
+  executor:
+    resources:
+      requests:
+        ephemeral-storage: 10Mi
+  # mainContainer adds default config for main container that could be overriden in workflows template
+  mainContainer:
+    resources:
+      requests:
+        ephemeral-storage: 10Mi
+
+#-----------------------------------------------------------------------------------------------------------------------
+# Argo rollouts
+#-----------------------------------------------------------------------------------------------------------------------
+argo-rollouts:
+  enabled: true
+  fullnameOverride: argo-rollouts
+  controller:
+    replicas: 1
+  installCRDs: true
+
+#-----------------------------------------------------------------------------------------------------------------------
+# Event reporters
+#-----------------------------------------------------------------------------------------------------------------------
+event-reporters:
+  rollout:
+    serviceAccount:
+      create: true
+    eventSource:
+      replicas: 1
+      resources: {}
+      tolerations: []
+      nodeSelector: {}
+      affinity: {}
+    sensor:
+      # -- Set to true to enable logging. Set intervalSeconds to add logging interval to moderate log flow.
+      logging:
+        enabled: false
+        intervalSeconds: 0
+      # -- Retry strategy for events sent to Codefresh
+      retryStrategy:
+        # -- Number of retries
+        steps: 3
+        # -- The initial duration, use strings like "2s", "1m"
+        duration: 0
+        # -- Duration is multiplied by factor each retry, if factor is not zero and steps limit has not been reached. Should not be negative
+        factor: 1.0
+        # -- The sleep between each retry is the duration plus an additional amount chosen uniformly at random from the interval between zero and `jitter * duration`.
+        jitter: 1
+      replicas: 1
+      resources: {}
+      # -- Environment variables for sensor pods - add DEBUG_LOG: "true" to add debug level logs
+      env: {}
+      tolerations: []
+      nodeSelector: {}
+      affinity: {}
+  workflow:
+    serviceAccount:
+      create: true
+    eventSource:
+      replicas: 1
+      resources: {}
+      tolerations: []
+      nodeSelector: {}
+      affinity: {}
+    sensor:
+      # -- Set to true to enable logging. Set intervalSeconds to add logging interval to moderate log flow.
+      logging:
+        enabled: false
+        intervalSeconds: 0
+      # -- Retry strategy for events sent to Codefresh
+      retryStrategy:
+        # -- Number of retries
+        steps: 3
+        # -- The initial duration, use strings like "2s", "1m"
+        duration: 0
+        # -- Duration is multiplied by factor each retry, if factor is not zero and steps limit has not been reached. Should not be negative
+        factor: 1.0
+        # -- The sleep between each retry is the duration plus an additional amount chosen uniformly at random from the interval between zero and `jitter * duration`.
+        jitter: 1
+      replicas: 1
+      resources: {}
+      # -- Environment variables for sensor pods - add DEBUG_LOG: "true" to add debug level logs
+      env: {}
+      tolerations: []
+      nodeSelector: {}
+      affinity: {}
+
+#-----------------------------------------------------------------------------------------------------------------------
+# Internal router
+#-----------------------------------------------------------------------------------------------------------------------
+internal-router:
+  replicaCount: 1
+  image:
+    repository: nginxinc/nginx-unprivileged
+    pullPolicy: IfNotPresent
+    tag: 1.26-alpine3.20
+  imagePullSecrets: []
+  nameOverride: ""
+  fullnameOverride: "internal-router"
+  # -- For ipv6 enabled clusters switch ipv6 enabled to true
+  ipv6:
+    enabled: false
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  # -- Environment variables - see values.yaml inside the chart for usage
+  env: {}
+    #  NAMESPACE:
+    #    valueFrom:
+    #     fieldRef:
+    #       fieldPath: metadata.namespace
+    #  VAR_NAME:
+    #    valueFrom:
+    #      secretKeyRef:
+    #       name: my-secret
+    #       key: my-secret-key
+    #       optional: true
+    #  VAR_NAME:
+    #   valueFrom:
+    #     configMapKeyRef:
+    #       name: my-config-map
+    #       key: my-config-map-key
+    #       optional: true
+    #  VAR_NANE: string-value
+  securityContext: {}
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  resources:
+    limits:
+      memory: 256Mi
+      cpu: "1"
+    requests:
+      memory: 128Mi
+      cpu: "0.2"
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # -- Internal routing settings. Do not change this unless you are absolutely certain - the values are determined by chart's logic.
+  routing: {}
+  #  Example of values:
+    # workflows:
+    #   enabled: true
+    #   internalUrl: "https://argo-server1:2746/"
+    # app-proxy:
+    #   internalUrl: "http://cap-app-proxy:3017"
+
+  dnsService: kube-dns
+  dnsNamespace: kube-system
+  clusterDomain: cluster.local
+
+  ## Internal-Router Pod Disruption Budget
+  pdb:
+    # -- Enable PDB
+    enabled: false
+    # -- Set number of pods that are available after eviction as number or percentage
+    minAvailable: 1
+    # -- Set number of pods that are unavailable after eviction as number or percentage
+    maxUnavailable: ""
+
+#-----------------------------------------------------------------------------------------------------------------------
+# tunnel client
+#-----------------------------------------------------------------------------------------------------------------------
+# -- Tunnel based runtime. Not supported for on-prem platform. In on-prem use ingress based runtimes.
+tunnel-client:
+  # -- Will only be used if global.runtime.ingress.enabled = false
+  enabled: true
+  # -- Do not change this value! Breaks chart logic
+  libraryMode: true
+  tunnelServer:
+    host: "register-tunnels.cf-cd.com"
+    subdomainHost: "tunnels.cf-cd.com"
+
+#-----------------------------------------------------------------------------------------------------------------------
+# app-proxy
+#-----------------------------------------------------------------------------------------------------------------------
+app-proxy:
+  replicaCount: 1
+  # -- Image enrichment process configuration
+  image-enrichment:
+    # -- Enable or disable enrichment process. Please note that for enrichemnt, argo-workflows has to be enabled as well.
+    enabled: true
+    # -- Service account that will be used for enrichemnt process
+    serviceAccount:
+      # -- Whether to create the service account or use an existing one
+      create: true
+      # -- Name of the service account to create or the name of the existing one to use
+      name: codefresh-image-enrichment-sa
+      # -- Annotations on the service account
+      annotations:
+    # -- Configurations for image enrichment workflow
+    config:
+      # -- The name of the configmap to use as synchronization semaphore, see https://argoproj.github.io/argo-workflows/synchronization/
+      concurrencyCmName: 'workflow-synchronization-semaphores'
+      # -- The name of the key in the configmap to use as synchronization semaphore
+      concurrencyCmKey: 'imageReportExecutor'
+      # -- Pod grabage collection strategy. By default all pods will be deleted when the enrichment workflow completes.
+      podGcStrategy: 'OnWorkflowCompletion'
+      # -- Number of seconds to live after completion
+      ttlAfterCompletionInSeconds: 86400
+      # -- Maximum allowed runtime for the enrichment workflow
+      ttlActiveInSeconds: 900
+      # -- Client heartbeat interval in seconds for image enrichemnt workflow
+      clientHeartbeatIntervalInSeconds: 5
+      # -- Enrichemnt images
+      images:
+        # -- Report image enrichment task image
+        reportImage:
+          registry: quay.io
+          repository: codefreshplugins/argo-hub-codefresh-csdp-report-image-info
+          tag: 1.1.12-main
+        # Git enrichment task image
+        gitEnrichment:
+          registry: quay.io
+          repository: codefreshplugins/argo-hub-codefresh-csdp-image-enricher-git-info
+          tag: 1.1.12-main
+        # Jira enrichment task image
+        jiraEnrichment:
+          registry: quay.io
+          repository: codefreshplugins/argo-hub-codefresh-csdp-image-enricher-jira-info
+          tag: 1.1.12-main
+  image:
+    repository: quay.io/codefresh/cap-app-proxy
+    tag: 1.3318.0
+    pullPolicy: IfNotPresent
+  # -- Extra volume mounts for main container
+  extraVolumeMounts: []
+
+  initContainer:
+    image:
+      repository: quay.io/codefresh/cap-app-proxy-init
+      tag: 1.3307.0
+      pullPolicy: IfNotPresent
+    command:
+      - ./init.sh
+
+    env: {}
+
+    resources:
+      limits:
+        memory: 512Mi
+        cpu: '1'
+      requests:
+        memory: 256Mi
+        cpu: '0.2'
+
+    # -- Extra volume mounts for init container
+    extraVolumeMounts: []
+
+  imagePullSecrets: []
+  nameOverride: ""
+  fullnameOverride: "cap-app-proxy"
+
+  config:
+    # -- ArgoCD user to be used by app-proxy
+    argoCdUsername: "admin"
+    # -- ArgoCD Url. determined by chart logic. Do not change unless you are certain you need to
+    argoCdUrl:
+    # -- Workflows server url. Determined by chart logic. Do not change unless you are certain you need to
+    argoWorkflowsUrl:
+    argoWorkflowsInsecure: "true"
+    env: "production"
+    # -- Skit git permissions validation
+    skipGitPermissionValidation: "false"
+    # -- Log Level
+    logLevel: "info"
+    # -- define cluster list size per request to report the cluster state to platform, e.g.
+    # if you have 90 clusters and set clusterChunkSize: 40, it means cron job will report cluster state to platform in 3 iterations (40,40,10)
+    # - reduce this value if you have a lot of clusters and the cron job is failing with payload too large error
+    # - use 0 to sync all clusters at once
+    clusterChunkSize: 50
+
+  env: {}
+
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: "cap-app-proxy"
+
+  podAnnotations: {}
+
+  podLabels: {}
+
+  podSecurityContext: {}
+    # fsGroup: 2000
+
+  securityContext:
+    allowPrivilegeEscalation: false
+
+  readinessProbe:
+    # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded.
+    failureThreshold: 3
+    # -- Number of seconds after the container has started before [probe] is initiated.
+    initialDelaySeconds: 10
+    # -- How often (in seconds) to perform the [probe].
+    periodSeconds: 10
+    # -- Minimum consecutive successes for the [probe] to be considered successful after having failed.
+    successThreshold: 1
+    # -- Number of seconds after which the [probe] times out.
+    timeoutSeconds: 10
+
+  livenessProbe:
+    # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded.
+    failureThreshold: 10
+    # -- Number of seconds after the container has started before [probe] is initiated.
+    initialDelaySeconds: 10
+    # -- How often (in seconds) to perform the [probe].
+    periodSeconds: 10
+    # -- Minimum consecutive successes for the [probe] to be considered successful after having failed.
+    successThreshold: 1
+    # -- Number of seconds after which the [probe] times out.
+    timeoutSeconds: 10
+
+  service:
+    type: ClusterIP
+    port: 3017
+
+  resources:
+    requests:
+      memory: '512Mi'
+      ephemeral-storage: '2Gi'
+      cpu: '100m'
+    limits:
+      memory: '1Gi'
+      ephemeral-storage: '6Gi'
+      cpu: '1500m'
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # -- extra volumes
+  extraVolumes: []
+
+  ## App-Proxy Pod Disruption Budget
+  pdb:
+    # -- Enable PDB
+    enabled: false
+    # -- Set number of pods that are available after eviction as number or percentage
+    minAvailable: 1
+    # -- Set number of pods that are unavailable after eviction as number or percentage
+    maxUnavailable: ""
+
+#-----------------------------------------------------------------------------------------------------------------------
+# gitops-operator
+#-----------------------------------------------------------------------------------------------------------------------
+gitops-operator:
+  # -- Do not change unless instructed otherwise by Codefresh support
+  libraryMode: true
+  enabled: true
+  replicaCount: 1
+
+  # -- Codefresh gitops operator crds
+  crds:
+    # -- Whether or not to install CRDs
+    install: true
+    # -- Keep CRDs if gitops runtime release is uninstalled
+    keep: false
+    # -- Annotations on gitops operator CRDs
+    annotations: {}
+    # -- Additional labels for gitops operator CRDs
+    additionalLabels: {}
+
+  env: {}
+  image: {}
+    # -- defaults
+    # repository: quay.io/codefresh/codefresh-gitops-operator
+    # tag: 'v{{ .Chart.AppVersion }}'
+
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: "gitops-operator-controller-manager"
+
+  # -- Builtin notifications controller used by gitops-operator for promotion related notifications
+  argoCdNotifications:
+    # -- If set to true allows to override notifications image used by the gitops operator. When set to false the version of ArgoCD will be set to the version used for all other ArgoCD components.
+    imageOverride: false
+    # -- Set image.repository and image.tag notifications image used by the gitops operator. Ignored unless imageOverride is set to true.
+    image: {}
+    # -- Resources for notifications controller used by gitops-operator.
+    resources: {}
+
+  imagePullSecrets: []
+  nameOverride: ""
+  fullnameOverride: ""
+
+  podAnnotations: {}
+  podLabels: {}
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
+  kube-rbac-proxy:
+    image:
+      tag: v0.16.0
+      # -- defaults
+      # repository: gcr.io/kubebuilder/kube-rbac-proxy
+      # tag: v0.14.1
+
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - "ALL"
+
+    resources:
+      limits:
+        cpu: 500m
+        memory: 128Mi
+      requests:
+        cpu: 100m
+        memory: 64Mi
+#-----------------------------------------------------------------------------------------------------------------------
+# Garage
+#-----------------------------------------------------------------------------------------------------------------------
+# -- Builtin Workflows artifacts storage solution. Local S3 backed by local persistence with (PV and PVC)
+garage-workflows-artifact-storage:
+  fullnameOverride: garage
+  enabled: false
+  deployment:
+    # -- Only statefulset is supported for Codefresh gitops runtime. Do not change this
+    kind: StatefulSet
+    replicaCount: 3
+  garage:
+    #-- Default to 3 replicas, see the replication_mode section at https://garagehq.deuxfleurs.fr/documentation/reference-manual/configuration/#replication-mode
+    replicationMode: 3
+  persistence:
+    enabled: true
+    # -- Volume that stores cluster metadata
+    meta:
+      # -- When empty value empty the default storage class for the cluster will be used
+      storageClass: ""
+      size: 100Mi
+    # -- Volume that stores artifacts and logs for workflows
+    data:
+      # -- When empty value empty the default storage class for the cluster will be used
+      storageClass: ""
+      size: 100Mi
+  # -- Resources for garage pods. For smaller deployments at least 100m CPU and 1024Mi memory is reccommended. For larger deployments double this size.
+  resources: {}
+  # -- Helm tests
+  tests:
+    enabled: false
+
+#-----------------------------------------------------------------------------------------------------------------------
+# cf-argocd-extras
+#-----------------------------------------------------------------------------------------------------------------------
+# -- Codefresh extra services for ArgoCD
+cf-argocd-extras:
+  enabled: false
+  sourcesServer:
+    container:
+      image:
+        tag: 2025.01.27-6069b19
+      env:
+        SOURCES_SERVER_ARGO_CD_TOKEN:
+          valueFrom:
+            secretKeyRef:
+              key: token
+              name: argocd-token
+        SOURCES_SERVER_ARGO_CD_SERVER:
+          valueFrom:
+            configMapKeyRef:
+              key: argoCdUrl
+              name: cap-app-proxy-cm
