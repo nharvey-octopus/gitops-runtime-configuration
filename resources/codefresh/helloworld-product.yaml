@@ -10,7 +10,7 @@ metadata:
 spec:
   project: cf-git-sources
   sources:
-  - repoURL: https://github.com/nharvey-octopus/helloworld-production.git
+  - repoURL: https://github.com/nharvey-octopus/helloworld.git
     path: ''
     targetRevision: HEAD
     directory:
