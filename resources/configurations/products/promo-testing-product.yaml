@@ -9,5 +9,5 @@ spec:
         - key: commitMessage
           operator: In
           values:
-            - '*[GitOps] Update image tag to vPR-*'
+            - '[GitOps] Update image tag to vPR-*'
   concurrency: queue
