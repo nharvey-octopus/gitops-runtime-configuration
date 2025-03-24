@@ -3,20 +3,20 @@ kind: Application
 metadata:
   name: helloworld-product
   labels:
-    codefresh.io/entity: 'git-source'
+    codefresh.io/entity: git-source
     codefresh.io/internal: 'false'
   finalizers:
   - resources-finalizer.argocd.argoproj.io
 spec:
   project: cf-git-sources
   sources:
-    - repoURL: https://github.com/nharvey-octopus/helloworld.git
-      path: .
-      targetRevision: HEAD
-      directory:
-        include: '*'
-        exclude: ''
-        recurse: true
+  - repoURL: https://github.com/nharvey-octopus/helloworld-production.git
+    path: ''
+    targetRevision: HEAD
+    directory:
+      include: ''
+      exclude: ''
+      recurse: true
   destination:
     namespace: codefresh
     server: https://kubernetes.default.svc
