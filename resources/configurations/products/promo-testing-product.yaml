@@ -1,4 +1,4 @@
-apiVersion: codefresh.io/v1beta1
+apiVersion: codefresh.io/v1beta2
 kind: Product
 metadata:
   name: promo-testing-product
@@ -10,3 +10,4 @@ spec:
           operator: In
           values:
             - '[GitOps] Update image tag to vPR-*'
+      concurrency: queue
