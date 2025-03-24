@@ -1,0 +1,13 @@
+apiVersion: codefresh.io/v1beta2
+kind: Product
+metadata:
+  name: promo-testing-product
+spec:
+  promotionFlows:
+    - name: qa-prod
+      gitTriggerSelectors:
+        - key: commitMessage
+          operator: In
+          values:
+            - '*testing*'
+  concurrency: queue
