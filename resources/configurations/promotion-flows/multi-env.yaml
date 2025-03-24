@@ -1,0 +1,21 @@
+apiVersion: codefresh.io/v1beta1
+kind: PromotionFlow
+metadata:
+  name: multi-env
+  annotations:
+    description: ""
+    version: "1.0"
+spec:
+  triggerEnvironment: dev
+  steps:
+    - environment: qa
+      dependsOn:
+        - dev
+      policy:
+        action: commit
+    - environment: prod
+      dependsOn:
+        - qa
+      policy:
+        action: commit
+  promotionTimeoutLimit: 5
