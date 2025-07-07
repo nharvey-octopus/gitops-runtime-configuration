@@ -15,7 +15,7 @@ spec:
   source:
     directory:
       include: >-
-        {all-runtimes-all-clusters/**/*.yaml,all-runtimes-all-clusters/*.yaml,control-planes/**/*.yaml,control-planes/*.yaml,gitops-default/cf-gitops-runtime.yaml,gitops-default/gitops-runner.yaml,runtimes/gitops-default/**/*.yaml,runtimes/gitops-default/*.yaml}
+        {all-runtimes-all-clusters/**/*.yaml,all-runtimes-all-clusters/*.yaml,configurations/**/*.yaml,control-planes/**/*.yaml,control-planes/*.yaml,gitops-default/cf-gitops-runtime.yaml,gitops-default/gitops-runner.yaml,runtimes/gitops-default/**/*.yaml,runtimes/gitops-default/*.yaml}
       recurse: true
     path: resources
     repoURL: https://github.com/nharvey-octopus/gitops-runtime-configuration.git
